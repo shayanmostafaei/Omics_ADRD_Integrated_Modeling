@@ -10,7 +10,7 @@ library(stringr)
 library(ggplot2)
 
 # ----------------------------------------------------------------------------------
-# 1. Figure 3: BioAge plot
+# 1. BioAge plot
 # ----------------------------------------------------------------------------------
 
 # Define age-related variables in the desired order
