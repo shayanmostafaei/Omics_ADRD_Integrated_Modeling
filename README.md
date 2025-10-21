@@ -68,9 +68,7 @@ Ethical approval: North West Multi-Centre Research Ethics Committee (UKB) and Sw
 ## Files
 
 - R scripts for preprocessing, modeling, survival analysis, and visualization  
-- Python scripts for PRS calculation  
-- Example datasets and configuration files for reproducible workflows  
-
+- Python scripts for PRS calculation and SHAP analysis 
 ---
 
 ## How to Use
