@@ -8,7 +8,7 @@ This project integrates multi-omics biological aging clocks, polygenic risk scor
 
 ## Overview
 
-This study leverages ~500,000 UKB participants aged 37–73 with a median follow-up of 9.2 years. Individuals with missing omics data, genetically non-European ancestry, close relatives, or those who withdrew consent were excluded.  
+This study leverages ~500,000 UKB participants aged 37–73 with a median follow-up of 9.2 years. Individuals with genetically non-European ancestry, close relatives, or those who withdrew consent were excluded.  
 
 The modeling framework integrates:
 
@@ -29,7 +29,7 @@ Ethical approval: North West Multi-Centre Research Ethics Committee (UKB) and Sw
   - Code: [DDML_PRS_ADRD](https://github.com/shayanmostafaei/DDML_PRS_ADRD)
 
 - **Biological Aging Measures:**  
-  - PhenoAge, KDM, homeostatic dysregulation (HD)  
+  - PhenoAge, Klemera-Doubal method (KDM), homeostatic dysregulation (HD)  
   - Frailty Index (FI) and relative leucocyte telomere length (TL)  
   - Calculated using the **BioAge** R package
 
