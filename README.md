@@ -73,7 +73,7 @@ Ethical approval: North West Multi-Centre Research Ethics Committee (UKB) and Sw
 
 ## How to Use
 
-1. Prepare datasets in R or Python following repository guidelines.  
+1. Prepare datasets in R (version 4.4.3) and Python (V3.10) following repository guidelines.  
 2. Run scripts sequentially as indicated for each analysis.  
 3. Follow inline instructions in each script for details and parameter settings.  
 
