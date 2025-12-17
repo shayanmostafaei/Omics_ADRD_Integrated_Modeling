@@ -64,7 +64,7 @@ Using predictors from the final integrated model, we:
 
 ---
 
-## Results at a glance (from the manuscript)
+## Results at a glance 
 
 Stepwise XGBoost AUCs on the held-out test set:
 
