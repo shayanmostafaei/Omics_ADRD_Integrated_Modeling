@@ -3,7 +3,7 @@
 #
 # Inputs required (produced by previous scripts):
 #   - results/survival_competing_risk/finegray_model_train.rds   (Script 05)
-#   - results/survival_competing_risk/test_predicted_risks_5y_9y.csv (Script 05) [we will recompute 3y/7y/9y too]
+#   - results/survival_competing_risk/test_predicted_risks_5y_9y.csv (Script 05) 
 #   - results/multivariable_xgboost/test_set_predictions_stepwise.csv (Script 03)
 #   - data/biomarkers_complete.rds (for subgroup variables + time-to-event columns)
 #
