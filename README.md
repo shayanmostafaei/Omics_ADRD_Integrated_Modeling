@@ -1,101 +1,100 @@
 # Omics_ADRD_Integrated_Modeling
 
-This project integrates multi-omics biological aging clocks, polygenic risk scores (PRS), and advanced machine learning to predict Alzheimer's disease and related dementias (ADRD) using UK Biobank (UKB) data. The repository includes R and Python code for data preprocessing, model construction, survival and competing risk analysis, and visualization.
+Integrated prediction of **Alzheimer’s disease and related dementias (ADRD)** using **multi-omics biological aging clocks**, **polygenic risk scores (PRS)**, and **machine learning**, with **survival/competing-risk** risk stratification in **UK Biobank**.
 
-**Omics_ADRD_Integrated_Modeling** provides a comprehensive framework for integrative predictive modeling of ADRD.
-
----
-
-## Overview
-
-This study leverages ~500,000 UKB participants aged 37–73 with a median follow-up of 9.2 years. Individuals with genetically non-European ancestry, close relatives, or those who withdrew consent were excluded.  
-
-The modeling framework integrates:
-
-- Genetic risk via polygenic risk scores (PRS)  
-- Biological aging measures from clinical biomarkers  
-- Proteomic (ProtAge) and metabolomic (MetaboAge) aging clocks  
-- Survival and competing risk analysis using advanced machine learning  
-
-Ethical approval: North West Multi-Centre Research Ethics Committee (UKB) and Swedish Ethical Review Authority. All participants provided informed consent. Analyses adhere to the Declaration of Helsinki and TRIPOD reporting guidelines.
+> **Important:** UK Biobank data are not distributed in this repository. This repo provides the analysis code and expected input formats.
 
 ---
 
-## Key Features
+## Study snapshot 
 
-- **Genetic Data and Polygenic Risk Scores (PRS):**  
-  - PRS constructed using 80 independent SNPs (including APOE) from GWAS summary statistics.  
-  - Bayesian variational autoencoder trained on individual-level genotypes for latent representation of SNP effects.  
-  - Code: [DDML_PRS_ADRD](https://github.com/shayanmostafaei/DDML_PRS_ADRD)
-
-- **Biological Aging Measures:**  
-  - PhenoAge, Klemera-Doubal method (KDM), homeostatic dysregulation (HD)  
-  - Frailty Index (FI) and relative leucocyte telomere length (TL)  
-  - Calculated using the **BioAge** R package
-
-- **Metabolomic Aging Clock (MetaboAge):**  
-  - 230,329 participants with 184 NMR-based metabolic variables  
-  - Preprocessing: Box-Cox transformation, KNN imputation (k=10), Mahalanobis outlier detection  
-  - Model: Stacked ensemble of XGBoost, LightGBM, CatBoost with Elastic-Net meta-learner (α=0.5)  
-  - Sex-stratified models  
-  - Code: [MetaboAge GitHub](https://github.com/shayanmostafaei/Metabolomic-Aging-Clock-MetaboAge-)
-
-- **Proteomic Aging Clock (ProtAge):**  
-  - 2,937 proteins from 55,327 participants (Olink platform)  
-  - Preprocessing: Box-Cox transformation, KNN imputation (k=10), iForest outlier detection  
-  - Model: Stacked ensemble of XGBoost, LightGBM, CatBoost with Elastic-Net meta-learner (α=0.5)  
-  - Sex-stratified models  
-  - Code: [ProtAge GitHub](https://github.com/shayanmostafaei/Proteomic-Aging-Clock-ProtAge-)
-
-- **Predictive Modeling of ADRD:**  
-  - Integrates PRS, BA measures, ProtAge, and MetaboAge using XGBoost ensemble  
-  - Stepwise inclusion of predictors for sequential model enrichment  
-  - Adjusted for age, sex, BMI, alcohol, smoking, education, and top 10 genetic PCs  
-  - Competing risk modeling using Fine and Gray method to account for death  
-
-- **Survival Analysis and Risk Stratification:**  
-  - Composite risk score derived from Model 5 predictors: CA, PRS, PhenoAge, FI, TL, ProtAge, MetaboAge, covariates  
-  - Time-to-event: earliest of ADRD diagnosis or death  
-  - Risk groups: top 25% high-risk vs bottom 75% low-risk  
-  - Subdistribution hazard ratios (sHR) estimated using Fine-Gray competing risk models  
-
-- **Software and Tools:**  
-  - **R (v4.4.3):** survival, riskRegression, cmprsk, prodlim, survminer, ggplot2, BioAge, XGBoost, LightGBM, CatBoost, glmnet  
-  - **Python (v3.10):** TensorFlow, Keras, scikit-learn  
+- **Cohort:** UK Biobank participants with complete data across genetics, clinical biomarkers, proteomics, and metabolomics  
+- **Final analytic sample:** **N = 16,215** ADRD-free at baseline  
+- **Follow-up:** baseline → earliest of ADRD diagnosis, death, or censoring (**end of follow-up: March 2023**)  
+- **Outcome (ADRD):** ICD-10 codes from hospital inpatient + death registry data (see manuscript for code list)
 
 ---
 
-## Files
+## What this repository does
 
-- R scripts for preprocessing, modeling, survival analysis, and visualization  
-- Python scripts for PRS calculation and SHAP analysis 
+### 1) Builds predictors used in ADRD modeling
+This workflow integrates:
+
+- **Chronological age (CA)** and **sex**
+- **Lifestyle covariates:** smoking, alcohol consumption, BMI, education
+- **Genetic risk:** **PRS (including APOE locus)**  
+  - PRS is computed using the **DDML Bayesian variational autoencoder** implementation:
+  - Code: https://github.com/shayanmostafaei/DDML_PRS_ADRD
+- **Biological aging measures (BA):** PhenoAge, Frailty Index (FI), Telomere Length (TL)
+- **Omics clocks:**
+  - **ProtAge (proteomics clock)**  
+    Code: https://github.com/shayanmostafaei/Proteomic-Aging-Clock-ProtAge-
+  - **MetaboAge (metabolomics clock)**  
+    Code: https://github.com/shayanmostafaei/Metabolomic-Aging-Clock-MetaboAge-
+
+### 2) Predicts incident ADRD using stepwise XGBoost models
+We fit a stepwise set of **XGBoost classification models** and compare performance on a held-out test set:
+
+- **Crude:** Age + Sex  
+- **Model 1:** Crude + Lifestyle  
+- **Model 2:** Model 1 + PRS  
+- **Model 3:** Model 2 + PhenoAge + FI + TL  
+- **Model 4:** Model 3 + ProtAge  
+- **Model 5:** Model 4 + MetaboAge (final integrated model)
+
+**Validation design:** stratified **70/30 train–test split** (test set used only for evaluation).  
+**Leakage control:** all preprocessing is done in the training split and applied to test; critically, **ProtAge and MetaboAge predictions are generated using clock models trained only in the training split**, then applied to the held-out test split.
+
+**Primary metric:** AUC (ROC), with **pairwise AUC tests** for stepwise comparisons on the *same* held-out test set.  
+**Imbalanced classification:** we additionally report **AUPRC** for Model 5.
+
+> Tip: If you want thresholds/clinical operating points, this repo can also output confusion-matrix metrics; however, thresholding is not the primary focus because ADRD is rare.
+
+### 3) Performs survival + competing-risk risk stratification (Fine–Gray)
+Using predictors from the final integrated model, we:
+
+- Encode time-to-event as earliest of **ADRD diagnosis** or **death**
+- Treat **death as a competing event**
+- Fit **Fine–Gray competing risk regression**
+- Predict **absolute risks at 5 and 9 years**
+- Stratify participants into:
+  - **High-risk:** top 25% of predicted risk
+  - **Low-risk:** bottom 75%
+- Estimate separation by **subdistribution hazard ratio (sHR)** between groups
+
 ---
 
-## How to Use
+## Results at a glance (from the manuscript)
 
-1. Prepare datasets in R (version 4.4.3) and Python (V3.10) following repository guidelines.  
-2. Run scripts sequentially as indicated for each analysis.  
-3. Follow inline instructions in each script for details and parameter settings.  
+Stepwise XGBoost AUCs on the held-out test set:
+
+- **Crude (Age+Sex):** AUC 0.79  
+- **+ Lifestyle:** AUC 0.82  
+- **+ PRS:** AUC 0.86  
+- **+ PhenoAge + FI + TL:** AUC 0.89  
+- **+ ProtAge:** AUC 0.90  
+- **+ MetaboAge:** AUC 0.90 (final model; AUPRC also reported)
+
+Competing-risk stratification (Fine–Gray) shows strong separation between high-risk vs low-risk groups (see manuscript).
 
 ---
 
-## Reference
+## Citation
 
 If you use this code, please cite:
 
-> Mostafaei S, et al. (2025) "Precision Prediction of Alzheimer's Disease and Related Dementias Using Integrative Multi-Omics Aging Clocks and Genetic Data" [Manuscript].  
+Mostafaei S, et al. (2025).  
+“Precision Prediction of Alzheimer's Disease and Related Dementias Using Integrative Multi-Omics Aging Clocks and Genetic Data” (manuscript).
 
 ---
 
 ## License
 
-This project is licensed under the MIT License.
+MIT License (see `LICENSE`).
 
 ---
 
 ## Contact
 
-For questions or contributions, contact:  
-
-- **Dr. Shayan Mostafaei** (shayan.mostafaei@ki.se)  
-- **Dr. Sara Hägg** (sara.hagg@ki.se)  
+- Dr. Shayan Mostafaei — shayan.mostafaei@ki.se  
+- Dr. Sara Hägg — sara.hagg@ki.se
