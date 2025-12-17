@@ -232,7 +232,6 @@ fit_xgb_step <- function(formula, trainData, testData, params, nrounds_max, earl
     ci_high = ci[3]
   )
 }
-
 # --------------------------
 # RUN STEPWISE MODELS
 # --------------------------
@@ -257,6 +256,24 @@ for (nm in names(model_formulas)) {
   saveRDS(res$model, file.path(OUT_DIR, paste0(nm, "_xgb_model.rds")))
 }
 
+# ---- Export EXACT Model 5 design matrices + labels for Python SHAP ----
+m5_name <- "Model5_Add_MetaboAge"
+m5_formula <- model_formulas[[m5_name]]
+
+X_train_m5 <- model.matrix(m5_formula, data = train_df_imp)[, -1, drop = FALSE]
+X_test_m5  <- model.matrix(m5_formula, data = test_df_imp)[, -1, drop = FALSE]
+
+shap_input <- list(
+  X_train = as.data.frame(X_train_m5),
+  X_test  = as.data.frame(X_test_m5),
+  y_train = as.integer(train_df_imp$.outcome),
+  y_test  = as.integer(test_df_imp$.outcome)
+)
+
+saveRDS(shap_input, file.path(OUT_DIR, "model5_shap_input.rds"))
+
+# Export the EXACT trained booster (preferred: SHAP reflects the same fitted model)
+xgboost::xgb.save(model_results[[m5_name]]$model, file.path(OUT_DIR, "Model5_Add_MetaboAge_xgb_model.json"))                             
 # --------------------------
 # SUMMARIZE AUCs + PAIRWISE TESTS 
 # --------------------------
