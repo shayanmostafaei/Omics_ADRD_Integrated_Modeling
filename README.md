@@ -75,7 +75,7 @@ Stepwise XGBoost AUCs on the held-out test set:
 - **+ ProtAge:** AUC 0.90  
 - **+ MetaboAge:** AUC 0.90 (final model; AUPRC also reported)
 
-Competing-risk stratification (Fine–Gray) shows strong separation between high-risk vs low-risk groups (see manuscript).
+Competing-risk stratification (Fine–Gray) shows strong separation between high-risk vs low-risk groups (see the paper).
 
 ---
 
