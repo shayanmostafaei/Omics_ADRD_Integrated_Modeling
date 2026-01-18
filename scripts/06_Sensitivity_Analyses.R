@@ -1,17 +1,16 @@
 # ==================================================================================
 # 06_Sensitivity_Analyses.R
 #
-# Inputs required (produced by previous scripts):
-#   - results/survival_competing_risk/finegray_model_train.rds   (Script 05)
-#   - results/survival_competing_risk/test_predicted_risks_5y_9y.csv (Script 05) 
+# Inputs required:
+#   - results/survival_competing_risk/finegray_model_train.rds (Script 05)
 #   - results/multivariable_xgboost/test_set_predictions_stepwise.csv (Script 03)
-#   - data/biomarkers_complete.rds (for subgroup variables + time-to-event columns)
+#   - data/biomarkers_complete.rds
 #
 # Outputs:
 #   results/sensitivity/
 #     - shr_by_horizon_test.csv
 #     - cif_horizon_plots.png
-#     - early_event_exclusion_shr_cif.png
+#     - early_event_exclusion_shr_cif.png  (only if needed)
 #     - auc_subgroups_from_holdout_preds.csv
 #     - auc_sensitivity_forestplot.png
 # ==================================================================================
@@ -25,6 +24,7 @@ suppressPackageStartupMessages({
   library(scales)
   library(pROC)
   library(patchwork)
+  library(grid)
 })
 
 # --------------------------
@@ -33,40 +33,39 @@ suppressPackageStartupMessages({
 set.seed(20250101)
 
 INPUT_RDS <- "data/biomarkers_complete.rds"
-
-# Outputs from Script 05
 FG_MODEL_RDS <- "results/survival_competing_risk/finegray_model_train.rds"
-
-# Outputs from Script 03
 XGB_PRED_CSV <- "results/multivariable_xgboost/test_set_predictions_stepwise.csv"
 
 OUT_DIR <- "results/sensitivity"
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
-# Column name settings
 ID_COL <- "f.eid"
 OUTCOME_COL <- "Dementia_status"
 SEX_COL <- "sex"
 
-# Survival columns (from Script 05)
-T_DEM_COL <- "Time_to_Dementia"
-DEATH_COL <- "death_status"
-T_DEATH_COL <- "time_to_death"
+# survival columns
+T_DEM_COL <- "Time_to_Dementia"     # DAYS
+DEATH_COL <- "death_status"         # 0/1
+T_DEATH_COL <- "time_to_death"      # YEARS in your dataset
+CENS_COL <- "length_followup"       # YEARS in your dataset
 
-# Optional subgroup columns for AUC sensitivity
-AGE_ONSET_COL <- "age_at_dementia_onset"   # needed for early vs late onset AUC
-APOE4_COL <- "APOEe4_status"               # needed for carrier/non-carrier AUC
+T_DEATH_IS_YEARS <- TRUE
+CENS_IS_YEARS <- TRUE
 
-# Risk group cutpoint
+AGE_ONSET_COL <- "age_at_dementia_onset"
+APOE4_COL <- "APOEe4_status"
+
 HIGH_RISK_Q <- 0.75
 
-# Horizons (days)
-HORIZONS <- c("3y" = 1096, "7y" = 2555, "9y" = 3287)
+# Horizons in DAYS (consistent with Script 05)
+HORIZONS <- c(
+  "3y" = 3 * 365.25,
+  "7y" = 7 * 365.25,
+  "9y" = 9 * 365.25
+)
 
-# Early event exclusion window (days)
 EARLY_EVENT_DAYS <- 30
 
-# Which XGBoost prediction column corresponds to the FINAL model in Script 03
 FINAL_XGB_PRED_COL <- "pred_Model5_Add_MetaboAge"
 
 # --------------------------
@@ -81,52 +80,67 @@ fg_fit <- readRDS(FG_MODEL_RDS)
 xgb_preds <- read.csv(XGB_PRED_CSV, stringsAsFactors = FALSE)
 
 # --------------------------
-# Helper: build TEST set for survival outcomes consistent with Script 05
+# Helper: build TEST set consistent with Script 05
 # --------------------------
 build_survival_test <- function(df0) {
+
   if (!ID_COL %in% names(df0)) df0[[ID_COL]] <- seq_len(nrow(df0))
 
+  # y_class for stratified splitting
   y_raw <- df0[[OUTCOME_COL]]
   y_num <- if (is.factor(y_raw)) suppressWarnings(as.numeric(as.character(y_raw))) else suppressWarnings(as.numeric(y_raw))
-  if (any(is.na(y_num))) y_num <- if (is.factor(y_raw)) as.numeric(y_raw) - 1 else ifelse(is.na(y_num), 0, y_num)
+  y_num <- ifelse(is.na(y_num), 0, y_num)
   y_num <- ifelse(y_num == 1, 1, 0)
 
   df1 <- df0 %>%
     transmute(
       id = as.character(.data[[ID_COL]]),
       y_class = y_num,
-      sex = as.factor(.data[[SEX_COL]]),
-      t_dem = suppressWarnings(as.numeric(.data[[T_DEM_COL]])),
-      dem_event = ifelse(y_num == 1, 1, 0),
-      death_event = suppressWarnings(as.numeric(as.character(.data[[DEATH_COL]]))),
-      death_event = ifelse(death_event == 1, 1, 0),
-      t_death = suppressWarnings(as.numeric(.data[[T_DEATH_COL]])),
 
-      # optional subgroup variables
+      # raw times
+      t_dem_days = suppressWarnings(as.numeric(.data[[T_DEM_COL]])),  # DAYS
+      death_event = suppressWarnings(as.numeric(as.character(.data[[DEATH_COL]]))),
+      death_event = ifelse(is.na(death_event), 0, ifelse(death_event == 1, 1, 0)),
+      t_death_raw = suppressWarnings(as.numeric(.data[[T_DEATH_COL]])), # likely YEARS
+      t_cens_raw  = suppressWarnings(as.numeric(.data[[CENS_COL]])),    # likely YEARS
+
+      # subgroup vars
+      sex = as.factor(.data[[SEX_COL]]),
       age_onset = if (AGE_ONSET_COL %in% names(df0)) suppressWarnings(as.numeric(.data[[AGE_ONSET_COL]])) else NA_real_,
       apoe4 = if (APOE4_COL %in% names(df0)) as.factor(.data[[APOE4_COL]]) else NA
     ) %>%
     filter(!is.na(y_class))
 
+  # Convert death & censoring to DAYS
   df1 <- df1 %>%
     mutate(
-      has_dem = dem_event == 1 & !is.na(t_dem),
-      has_death = death_event == 1 & !is.na(t_death),
+      t_death_days = ifelse(
+        death_event == 1 & !is.na(t_death_raw),
+        if (T_DEATH_IS_YEARS) t_death_raw * 365.25 else t_death_raw,
+        Inf
+      ),
+
+      t_cens_days = ifelse(
+        !is.na(t_cens_raw),
+        if (CENS_IS_YEARS) t_cens_raw * 365.25 else t_cens_raw,
+        Inf
+      ),
+
+      # ADRD time only active if case
+      t_dem_event_days = ifelse(y_class == 1 & !is.na(t_dem_days), t_dem_days, Inf),
+
+      time = pmin(t_dem_event_days, t_death_days, t_cens_days, na.rm = TRUE),
 
       event = case_when(
-        has_dem & (!has_death | t_dem <= t_death) ~ 1,
-        has_death & (!has_dem | t_death < t_dem)  ~ 2,
-        TRUE ~ 0
-      ),
-      time = case_when(
-        event == 1 ~ t_dem,
-        event == 2 ~ t_death,
-        TRUE ~ pmin(t_dem, t_death, na.rm = TRUE)
+        is.finite(t_dem_event_days) & t_dem_event_days <= t_death_days & t_dem_event_days <= t_cens_days ~ 1L,
+        is.finite(t_death_days)     & t_death_days     <  t_dem_event_days & t_death_days <= t_cens_days ~ 2L,
+        TRUE ~ 0L
       )
     ) %>%
-    filter(is.finite(time) & !is.na(time) & time > 0) %>%
+    filter(is.finite(time), !is.na(time), time > 0) %>%
     mutate(event = as.integer(event))
 
+  # Same split mechanism as Script 05
   train_idx <- caret::createDataPartition(df1$y_class, p = 0.70, list = FALSE)
   test_df <- df1[-train_idx, , drop = FALSE]
   test_df
@@ -134,26 +148,23 @@ build_survival_test <- function(df0) {
 
 test_surv <- build_survival_test(Biomarkers_complete)
 
+message("TEST event counts (0=cens,1=ADRD,2=death):")
+print(table(test_surv$event))
+
 # --------------------------
 # A) Horizon robustness: 3y/7y/9y
-# - Predict absolute risk in TEST using TRAIN Fine–Gray model
-# - Create risk group at each horizon and compute:
-#     CIF (cause 1) + sHR High vs Low + sHR per +1% absolute risk
 # --------------------------
-
 predict_risk_vec <- function(fg_fit, newdata, times) {
   r <- riskRegression::predictRisk(fg_fit, newdata = newdata, times = times)
   as.numeric(if (is.matrix(r)) r[, 1] else r)
 }
 
-compute_shr_group <- function(df, group_col) {
-  mm <- model.matrix(reformulate(group_col), data = df)[, -1, drop = FALSE]
+compute_shr_group <- function(df, group_var) {
+  mm <- model.matrix(reformulate(group_var), data = df)[, -1, drop = FALSE]
   fit <- cmprsk::crr(ftime = df$time, fstatus = df$event, cov1 = mm, failcode = 1, cencode = 0)
   b <- as.numeric(fit$coef)
   se <- sqrt(diag(fit$var))
   data.frame(
-    beta = b,
-    se = se,
     sHR = exp(b),
     CI_low = exp(b - 1.96 * se),
     CI_high = exp(b + 1.96 * se),
@@ -161,16 +172,12 @@ compute_shr_group <- function(df, group_col) {
   )
 }
 
-compute_shr_continuous_per1pct <- function(df, risk_col) {
-  cov_mat <- matrix(df[[risk_col]], ncol = 1)
+compute_shr_continuous_per1pct <- function(df, risk_vec) {
+  cov_mat <- matrix(risk_vec, ncol = 1)
   fit <- cmprsk::crr(ftime = df$time, fstatus = df$event, cov1 = cov_mat, failcode = 1, cencode = 0)
   b <- as.numeric(fit$coef)
   se <- sqrt(diag(fit$var))
-
-  # per +1% absolute risk increase == +0.01
   data.frame(
-    beta = b,
-    se = se,
     sHR_per_1pct = exp(b * 0.01),
     CI_low = exp((b - 1.96 * se) * 0.01),
     CI_high = exp((b + 1.96 * se) * 0.01),
@@ -178,8 +185,8 @@ compute_shr_continuous_per1pct <- function(df, risk_col) {
   )
 }
 
-make_cif_df <- function(df, group_col) {
-  ci <- cmprsk::cuminc(ftime = df$time, fstatus = df$event, group = df[[group_col]])
+make_cif_df <- function(df, group_vec) {
+  ci <- cmprsk::cuminc(ftime = df$time, fstatus = df$event, group = group_vec)
   cause1_names <- names(ci)[grepl(" 1$", names(ci))]
   out <- bind_rows(lapply(cause1_names, function(nm) {
     e <- ci[[nm]]
@@ -201,22 +208,12 @@ plots <- list()
 for (nm in names(HORIZONS)) {
   t_days <- as.numeric(HORIZONS[[nm]])
 
-  risk_col <- paste0("risk_", nm)
-  test_tmp <- test_surv %>%
-    mutate(!!risk_col := predict_risk_vec(fg_fit, newdata = test_surv, times = t_days))
+  risk_vec <- predict_risk_vec(fg_fit, newdata = test_surv, times = t_days)
+  q75 <- as.numeric(quantile(risk_vec, probs = HIGH_RISK_Q, na.rm = TRUE))
+  group_vec <- factor(ifelse(risk_vec > q75, "High", "Low"), levels = c("Low","High"))
 
-  q75 <- as.numeric(quantile(test_tmp[[risk_col]], probs = HIGH_RISK_Q, na.rm = TRUE))
-  grp_col <- paste0("risk_group_", nm)
-
-  test_tmp <- test_tmp %>%
-    mutate(
-      !!grp_col := factor(ifelse(.data[[risk_col]] > q75, "High", "Low"), levels = c("Low", "High"))
-    )
-
-  # sHR High vs Low
-  shr_g <- compute_shr_group(test_tmp, grp_col)
-  # sHR per 1% absolute-risk increase
-  shr_c <- compute_shr_continuous_per1pct(test_tmp, risk_col)
+  shr_g <- compute_shr_group(test_surv %>% mutate(group_tmp = group_vec), "group_tmp")
+  shr_c <- compute_shr_continuous_per1pct(test_surv, risk_vec)
 
   shr_rows[[nm]] <- data.frame(
     Horizon = nm,
@@ -231,8 +228,8 @@ for (nm in names(HORIZONS)) {
     Cont_p = shr_c$p_value
   )
 
-  # CIF plot
-  cif_df <- make_cif_df(test_tmp, grp_col)
+  cif_df <- make_cif_df(test_surv, group_vec)
+
   ann <- paste0(
     "High vs Low sHR = ", sprintf("%.2f", shr_g$sHR),
     " (", sprintf("%.2f", shr_g$CI_low), "–", sprintf("%.2f", shr_g$CI_high), ")\n",
@@ -240,7 +237,7 @@ for (nm in names(HORIZONS)) {
     " (", sprintf("%.2f", shr_c$CI_low), "–", sprintf("%.2f", shr_c$CI_high), ")"
   )
 
-  p <- ggplot(cif_df, aes(x = time, y = est, color = group, fill = group)) +
+  plots[[nm]] <- ggplot(cif_df, aes(x = time, y = est, color = group, fill = group)) +
     geom_ribbon(aes(ymin = lower, ymax = upper), alpha = 0.18, color = NA) +
     geom_step(linewidth = 1) +
     scale_y_continuous(labels = percent_format(accuracy = 1)) +
@@ -253,96 +250,83 @@ for (nm in names(HORIZONS)) {
       fill = "Risk group"
     ) +
     theme_classic(base_size = 13) +
-    theme(legend.position = "top", plot.title = element_text(face = "bold", hjust = 0.5),
+    theme(legend.position = "top",
+          plot.title = element_text(face = "bold", hjust = 0.5),
           plot.subtitle = element_text(hjust = 0.5))
-
-  plots[[nm]] <- p
 }
 
 shr_by_horizon <- bind_rows(shr_rows)
 write.csv(shr_by_horizon, file.path(OUT_DIR, "shr_by_horizon_test.csv"), row.names = FALSE)
 
-# Save combined CIF plots
 cif_panel <- plots[["3y"]] / plots[["7y"]] / plots[["9y"]]
 ggsave(file.path(OUT_DIR, "cif_horizon_plots.png"), cif_panel, width = 9, height = 16, dpi = 300)
 
 # --------------------------
 # B) Early event exclusion robustness (<=30 days)
-# - Use 9y risk group from A) recomputed inside this block (TEST only)
-# - Remove ADRD events with time <= 30 days, then recompute CIF + sHR
+# Uses 5-year risk grouping (aligned with Figure 5 logic)
+# Only runs if such early events exist
 # --------------------------
+risk5 <- predict_risk_vec(fg_fit, newdata = test_surv, times = 5 * 365.25)
+q75_5 <- as.numeric(quantile(risk5, probs = HIGH_RISK_Q, na.rm = TRUE))
+group5 <- factor(ifelse(risk5 > q75_5, "High", "Low"), levels = c("Low","High"))
 
-# Build 9y risk group again 
-risk9 <- predict_risk_vec(fg_fit, newdata = test_surv, times = HORIZONS[["9y"]])
-q75_9 <- as.numeric(quantile(risk9, probs = HIGH_RISK_Q, na.rm = TRUE))
+has_early <- any(test_surv$time <= EARLY_EVENT_DAYS & test_surv$event %in% c(1,2))
+if (has_early) {
 
-test_9 <- test_surv %>%
-  mutate(
-    risk_9y = risk9,
-    risk_group_9y = factor(ifelse(risk_9y > q75_9, "High", "Low"), levels = c("Low","High"))
+  test_sens <- test_surv %>%
+    mutate(group5 = group5) %>%
+    filter(!(event %in% c(1,2) & time <= EARLY_EVENT_DAYS))
+
+  shr_sens <- compute_shr_group(test_sens, "group5")
+  cif_sens <- make_cif_df(test_sens, test_sens$group5)
+
+  ann_sens <- paste0(
+    "Sensitivity: Excluding events ≤", EARLY_EVENT_DAYS, " days\n",
+    "sHR (High vs Low) = ", sprintf("%.2f", shr_sens$sHR),
+    " (", sprintf("%.2f", shr_sens$CI_low), "–", sprintf("%.2f", shr_sens$CI_high), ")"
   )
 
-# Exclude early ADRD events
-test_9_sens <- test_9 %>%
-  filter(!(event == 1 & time <= EARLY_EVENT_DAYS))
+  p_sens <- ggplot(cif_sens, aes(x=time, y=est, color=group, fill=group)) +
+    geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.18, color=NA) +
+    geom_step(linewidth=1) +
+    scale_y_continuous(labels = percent_format(accuracy = 1)) +
+    labs(
+      title = paste0("CIF (TEST): Excluding events ≤", EARLY_EVENT_DAYS, " days"),
+      subtitle = ann_sens,
+      x = "Time (days)",
+      y = "Cumulative incidence",
+      color = "Risk group",
+      fill = "Risk group"
+    ) +
+    theme_classic(base_size = 12) +
+    theme(legend.position="top",
+          plot.title = element_text(face="bold", hjust=0.5),
+          plot.subtitle = element_text(hjust=0.5))
 
-shr_g_sens <- compute_shr_group(test_9_sens, "risk_group_9y")
-cif_sens <- make_cif_df(test_9_sens, "risk_group_9y")
-cif_full <- make_cif_df(test_9, "risk_group_9y")
+  ggsave(file.path(OUT_DIR, "early_event_exclusion_shr_cif.png"),
+         p_sens, width = 9, height = 6, dpi = 300)
 
-ann_sens <- paste0(
-  "Sensitivity: Excluding ADRD events ≤", EARLY_EVENT_DAYS, " days\n",
-  "sHR (High vs Low) = ", sprintf("%.2f", shr_g_sens$sHR),
-  " (", sprintf("%.2f", shr_g_sens$CI_low), "–", sprintf("%.2f", shr_g_sens$CI_high), ")"
-)
-
-p_full <- ggplot(cif_full, aes(x=time, y=est, color=group)) +
-  geom_step(linewidth=0.8, alpha=0.4) +
-  labs(title="CIF (TEST): Full data (faint)") +
-  theme_classic(base_size = 12) +
-  theme(legend.position="none")
-
-p_sens <- ggplot(cif_sens, aes(x=time, y=est, color=group, fill=group)) +
-  geom_ribbon(aes(ymin=lower, ymax=upper), alpha=0.18, color=NA) +
-  geom_step(linewidth=1) +
-  scale_y_continuous(labels = percent_format(accuracy = 1)) +
-  labs(
-    title = paste0("CIF (TEST): Excluding ADRD events ≤", EARLY_EVENT_DAYS, " days"),
-    subtitle = ann_sens,
-    x = "Time (days)", y = "Cumulative incidence"
-  ) +
-  theme_classic(base_size = 12) +
-  theme(legend.position="top", plot.title = element_text(face="bold", hjust=0.5),
-        plot.subtitle = element_text(hjust=0.5))
-
-panel_early <- p_full / p_sens
-ggsave(file.path(OUT_DIR, "early_event_exclusion_shr_cif.png"), panel_early, width = 9, height = 10, dpi = 300)
+} else {
+  message("Early-event sensitivity skipped: no events within ", EARLY_EVENT_DAYS, " days in TEST.")
+}
 
 # --------------------------
-# C) AUC subgroup sensitivity using Script 03 holdout predictions
-# (NO re-training; uses same holdout predictions)
+# C) AUC subgroup sensitivity (uses holdout predictions; no retraining)
 # --------------------------
-
-# Merge subgroup variables into predictions (by row order fallback if ID mismatch)
-# xgb_preds has: ID, y_test, pred_Model...
 pred_df <- xgb_preds
-
-# Ensure we have a usable ID
 if (!"ID" %in% names(pred_df)) stop("XGB predictions file must contain 'ID' column.")
 pred_df$ID <- as.character(pred_df$ID)
 
-# Attach subgroup vars from Biomarkers_complete
 sub_df <- Biomarkers_complete %>%
   mutate(
-    ID = if (ID_COL %in% names(Biomarkers_complete)) as.character(.data[[ID_COL]]) else as.character(seq_len(nrow(.))),
+    ID = if (ID_COL %in% names(.)) as.character(.data[[ID_COL]]) else as.character(seq_len(nrow(.))),
     sex = as.factor(.data[[SEX_COL]]),
     age_onset = if (AGE_ONSET_COL %in% names(.)) suppressWarnings(as.numeric(.data[[AGE_ONSET_COL]])) else NA_real_,
     apoe4 = if (APOE4_COL %in% names(.)) as.factor(.data[[APOE4_COL]]) else NA
   ) %>%
   select(ID, sex, age_onset, apoe4)
 
-pred_df <- pred_df %>%
-  left_join(sub_df, by = c("ID" = "ID"))
+pred_df <- pred_df %>% left_join(sub_df, by = "ID")
 
 if (!FINAL_XGB_PRED_COL %in% names(pred_df)) stop("Missing final prediction column: ", FINAL_XGB_PRED_COL)
 
@@ -370,15 +354,14 @@ if (!all(is.na(pred_df$sex))) {
   }
 }
 
-# Early vs late onset 
+# Early vs late onset (cases only have onset age)
 if (AGE_ONSET_COL %in% names(Biomarkers_complete)) {
-  dd_all <- pred_df
-  dd_all <- dd_all %>% mutate(
-    early_case = ifelse(!is.na(age_onset) & age_onset < 65, 1, 0),
-    late_case  = ifelse(!is.na(age_onset) & age_onset >= 65, 1, 0)
-  )
+  dd_all <- pred_df %>%
+    mutate(
+      early_case = ifelse(!is.na(age_onset) & age_onset < 65, 1, 0),
+      late_case  = ifelse(!is.na(age_onset) & age_onset >= 65, 1, 0)
+    )
 
-  # Early-onset: controls + early cases
   dd_early <- dd_all %>% filter(y_test == 0 | early_case == 1)
   v <- auc_ci(dd_early$y_test, dd_early[[FINAL_XGB_PRED_COL]])
   auc_rows[["EarlyOnset"]] <- data.frame(
@@ -387,7 +370,6 @@ if (AGE_ONSET_COL %in% names(Biomarkers_complete)) {
     AUC = v["AUC"], Lower_CI = v["L"], Upper_CI = v["U"]
   )
 
-  # Late-onset: controls + late cases
   dd_late <- dd_all %>% filter(y_test == 0 | late_case == 1)
   v <- auc_ci(dd_late$y_test, dd_late[[FINAL_XGB_PRED_COL]])
   auc_rows[["LateOnset"]] <- data.frame(
@@ -413,9 +395,7 @@ if (APOE4_COL %in% names(Biomarkers_complete) && !all(is.na(pred_df$apoe4))) {
 auc_subgroups <- bind_rows(auc_rows)
 write.csv(auc_subgroups, file.path(OUT_DIR, "auc_subgroups_from_holdout_preds.csv"), row.names = FALSE)
 
-# --------------------------
-# D) Forest plot for AUC sensitivity 
-# --------------------------
+# Forest plot
 if (nrow(auc_subgroups) > 0) {
   auc_plot_df <- auc_subgroups %>%
     mutate(
@@ -442,7 +422,8 @@ if (nrow(auc_subgroups) > 0) {
       panel.spacing.y = unit(0.8, "lines")
     )
 
-  ggsave(file.path(OUT_DIR, "auc_sensitivity_forestplot.png"), p_auc, width = 9, height = 10, dpi = 300)
+  ggsave(file.path(OUT_DIR, "auc_sensitivity_forestplot.png"),
+         p_auc, width = 9, height = 10, dpi = 300)
 }
 
 cat("\nDONE ✅ Sensitivity analyses completed.\n")
