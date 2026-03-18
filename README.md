@@ -14,7 +14,7 @@ Integrated prediction of **Alzheimer’s disease and related dementias (ADRD)** 
 - **Follow-up:** baseline → earliest of ADRD diagnosis, death, or censoring  
   **End of follow-up:** **March 2023**  
   **Median follow-up:** **10.08 years**
-- **Outcome (ADRD):** ICD-10 codes from inpatient + death registry (see manuscript for code list)
+- **Outcome (ADRD):** ICD-10 codes from inpatient and death registry sources (see manuscript/Supplementary Appendix A for code list)
 
 ---
 
@@ -27,7 +27,7 @@ Integrated prediction of **Alzheimer’s disease and related dementias (ADRD)** 
 
 ### Genetic risk
 - **PRS including the APOE locus**  
-  - PRS computed using the DDML Bayesian variational autoencoder implementation:  
+  - PRS computed using the DDML Bayesian variational autoencoder implementation (https://link.springer.com/article/10.1186/s13195-026-02011-w):  
     https://github.com/shayanmostafaei/DDML_PRS_ADRD
 
 ### Biological aging measures (clinical)
@@ -38,9 +38,9 @@ Integrated prediction of **Alzheimer’s disease and related dementias (ADRD)** 
 
 ### Omics clocks
 - **ProtAge (proteomics clock)**  
-  https://github.com/shayanmostafaei/Proteomic-Aging-Clock-ProtAge-
+  https://github.com/shayanmostafaei/Proteomic-Aging-Clock-ProtAge
 - **MetaboAge (metabolomics clock)**  
-  https://github.com/shayanmostafaei/Metabolomic-Aging-Clock-MetaboAge-
+  https://github.com/shayanmostafaei/Metabolomic-Aging-Clock-MetaboAge
 
 ---
 
@@ -49,51 +49,56 @@ Integrated prediction of **Alzheimer’s disease and related dementias (ADRD)** 
 ### 1) Builds the analysis dataset
 - harmonizes predictors/covariates
 - handles missingness (training-only preprocessing; applied to held-out test split)
-- exports a modeling-ready dataset (no UKB raw fields distributed)
+- exports a modeling-ready dataset (**no UKB raw fields distributed**)
 
 ### 2) Stepwise ADRD prediction with XGBoost (Table 2)
-We fit a stepwise set of **XGBoost classification models** and evaluate AUC on a held-out test set:
+We fit a stepwise set of **XGBoost classification models** and evaluate discrimination on a held-out test set:
 
-- **Crude model:** Age + Sex
-- **Model 1:** Crude + Lifestyle (smoking, alcohol, BMI, education)
+- **Base model:** Age + Sex
+- **Model 1:** Base + Lifestyle (smoking, alcohol intake frequency, BMI, education)
 - **Model 2:** Model 1 + PRS
 - **Model 3:** Model 2 + PhenoAge + FI + TL
 - **Model 4:** Model 3 + ProtAge
 - **Model 5 (final):** Model 4 + MetaboAge
 
-**Validation design:** stratified **70/30 train–test split** (AUCs reported on the test set).  
-**Leakage control:** preprocessing is fit in training and applied to test. Critically, **ProtAge and MetaboAge are generated using clock models trained only within the training split**, then applied to the held-out test split.
+**Validation design:** stratified **70/30 train–test split** (performance reported on the test set).  
+**Leakage control:** preprocessing is fit in training and applied to test.
 
-**Primary metric:** ROC-AUC with 95% CI; stepwise comparisons use pairwise AUC tests on the same test set.  
-**Imbalanced classification:** we also report **AUPRC** for the final model.
+**Primary metrics:** ROC-AUC (with 95% CI) and AUPRC.  
+**Model comparisons:** pairwise ROC AUC comparisons on the same test set (DeLong test; see Supplementary Table A.3).
 
-### 3) Calibration of the final model (Appendix)
+> If your workflow re-trains omics clocks within the training split, document that explicitly in `01_data_prep/` to avoid any leakage concerns. If clocks are computed using fixed pipelines, state that no outcome information is used during clock computation.
+
+### 3) Calibration of the final model (Supplementary Figure A.6)
 We generate a decile-binned calibration plot in the held-out test set and report:
-- calibration slope and intercept 
-- Brier score
+- calibration slope and intercept
+- Brier score 
 
-### 4) Survival + competing-risk risk stratification (Fine–Gray)
+### 4) Interpretability (Supplementary Figure A.7)
+We compute SHAP values for the final integrated model to summarize global feature contributions.
+
+### 5) Survival + competing-risk risk stratification (Fine–Gray)
 Using predictors from the final integrated model, we:
 - encode time-to-event as earliest of **ADRD** or **death**
 - treat **death as a competing event**
-- fit **Fine–Gray competing risk regression**
+- fit **Fine–Gray competing-risk regression**
 - predict **absolute ADRD risk at 5 years** (primary horizon) and optionally 9 years
 - stratify participants into:
   - **Highest-risk:** top 25% of predicted 5-year risk
   - **Lower-risk:** bottom 75%
-- estimate separation using **subdistribution hazard ratio (sHR)**
+- estimate separation using **subdistribution hazard ratio (sHR)** and visualize cumulative incidence (manuscript Figure 5; Supplementary Figures A.8–A.10)
 
 ---
 
 ## Results at a glance (held-out test set)
 
 Stepwise XGBoost discrimination:
-- **Crude (Age+Sex):** AUC ≈ 0.79  
+- **Base (Age+Sex):** AUC ≈ 0.79  
 - **+ Lifestyle:** AUC ≈ 0.82  
 - **+ PRS:** AUC ≈ 0.86  
 - **+ PhenoAge + FI + TL:** AUC ≈ 0.89  
 - **+ ProtAge:** AUC ≈ 0.90  
-- **+ MetaboAge:** AUC ≈ 0.90 (AUPRC also reported)
+- **+ MetaboAge (final):** AUC ≈ 0.90 (AUPRC also reported)
 
 Competing-risk stratification shows strong separation between predicted risk groups (see manuscript Figure 5).
 
@@ -104,15 +109,15 @@ Competing-risk stratification shows strong separation between predicted risk gro
 - `01_data_prep/`
   - build analytic dataset; variable harmonization; train/test split
 - `02_univariate/`
-  - univariate AUCs (Figure 2), distributions (Figure A.1)
+  - univariate AUCs (Figure 2), distributions 
 - `03_correlations_associations/`
-  - correlation matrix (Figure 3) and lifestyle associations (Figure A.4; Table A.2)
+  - correlation matrix (Figure 3) and lifestyle associations 
 - `04_stepwise_xgboost/`
-  - Table 2 stepwise models + AUC comparisons + SHAP (Figure A.6) + AUPRC
+  - Table 2 stepwise models + AUC comparisons + AUPRC + SHAP 
 - `05_calibration/`
-  - calibration plot for Model 5 (Figure A.5)
+  - calibration plot for Model 5 
 - `06_competing_risk/`
-  - Fine–Gray modeling + CIF plots (Figure 5; sensitivity figures)
+  - Fine–Gray modeling + CIF plots 
 - `tables/` and `figures/`
   - manuscript-ready exports
 
@@ -121,7 +126,7 @@ Competing-risk stratification shows strong separation between predicted risk gro
 ## Reproducibility
 
 ### R environment
-This project was run using R (see the paper for the exact version) and common packages including:
+This project was run using R (see the manuscript for the exact version) and common packages including:
 `xgboost`, `caret`, `pROC`, `riskRegression`, `cmprsk`, `prodlim`, `ggplot2`, `dplyr`, `tidyr`.
 
 ### No raw UKB data
@@ -137,7 +142,7 @@ You should provide:
 If you use this code, please cite:
 
 Mostafaei S, Gustavsson K, Mak JKL, Vu TN, Karlsson IK, Hägg S.  
-**“Precision Prediction of Alzheimer’s Disease and Related Dementias Using Integrative Multi-Omics Aging Clocks and Genetic Data”** (manuscript).
+**Precision Prediction of Alzheimer’s Disease and Related Dementias Using Integrative Multi-Omics Aging Clocks and Genetic Data** (manuscript, Under Review).
 
 ---
 
