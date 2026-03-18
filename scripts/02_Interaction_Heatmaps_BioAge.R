@@ -5,7 +5,7 @@
 # OUTPUTS:
 # 1. Pairwise association/correlation plots between aging measures/PRS
 # 2. Heatmap of multivariable standardized linear associations (with FDR)
-# AUTHOR: Shayan Mostafaei, CONTRIBUTORS: [Add names]
+# AUTHOR: Shayan Mostafaei
 # DATE CREATED: 2026-03-18
 # ========================================================================
 
