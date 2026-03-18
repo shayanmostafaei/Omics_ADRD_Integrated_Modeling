@@ -27,15 +27,17 @@ Integrated prediction of **Alzheimer’s disease and related dementias (ADRD)** 
 
 ### Genetic risk
 - **PRS including the APOE locus**  
-  - PRS computed using the DDML Bayesian variational autoencoder implementation (https://link.springer.com/article/10.1186/s13195-026-02011-w):  
-    https://github.com/shayanmostafaei/DDML_PRS_ADRD
+  - PRS computed using the DDML Bayesian variational autoencoder implementation: 
+  - https://link.springer.com/article/10.1186/s13195-026-02011-w  
+  - https://github.com/shayanmostafaei/DDML_PRS_ADRD
 
 ### Biological aging measures (clinical)
 - **PhenoAge**
 - **Frailty Index (FI)** (49-item Rockwood deficit accumulation; range 0–1)
 - **Telomere Length (TL)**
 - Additional measures used for univariate/correlation analyses: **KDM**, **HD**
-
+- https://www.nature.com/articles/s41416-023-02288-w
+  
 ### Omics clocks
 - **ProtAge (proteomics clock)**  
   https://github.com/shayanmostafaei/Proteomic-Aging-Clock-ProtAge
