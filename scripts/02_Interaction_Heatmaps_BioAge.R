@@ -1,118 +1,142 @@
-# ==================================================================================
+# ========================================================================
 # 02_Interaction_Heatmaps_BioAge.R
-# BioAge plotting + associations between aging markers / PRS and lifestyle covariates
+# Associations between aging markers/PRS and lifestyle covariates
 #
-# What this script produces:
-# 1) BioAge pairwise association plot across aging measures / PRS (descriptive)
-# 2) Heatmap of multivariable linear associations:
-#    Each aging marker (incl. PRS) ~ smoking + alcohol + BMI + sex + education
-#    with FDR correction across all tests
-# ==================================================================================
+# OUTPUTS:
+# 1. Pairwise association/correlation plots between aging measures/PRS
+# 2. Heatmap of multivariable standardized linear associations (with FDR)
+# AUTHOR: Shayan Mostafaei, CONTRIBUTORS: [Add names]
+# DATE CREATED: 2026-03-18
+# ========================================================================
 
 suppressPackageStartupMessages({
   library(dplyr)
   library(broom)
   library(stringr)
   library(ggplot2)
+  library(readr)
+  library(tidyr)
 })
 
-# BioAge::plot_baa is used if available; script will still run without it.
+# Optional: BioAge plot (if available)
 HAS_BIOAGE <- requireNamespace("BioAge", quietly = TRUE)
 if (HAS_BIOAGE) suppressPackageStartupMessages(library(BioAge))
 
 # --------------------------
-# USER SETTINGS 
+# USER CONFIGURATION
 # --------------------------
 
 set.seed(20250101)
-
-# Input: analysis table as .rds (recommended) OR load Biomarkers_complete before sourcing this script
-INPUT_RDS <- "data/biomarkers_complete.rds"   
-
-# Output directory
-OUT_DIR <- "results/interaction_heatmaps"
+INPUT_RDS <- "data/biomarkers_complete.rds"
+OUT_DIR <- file.path("results", "03_correlations_associations", "bioage_lifestyle_heatmap")
 dir.create(OUT_DIR, showWarnings = FALSE, recursive = TRUE)
 
-# Aging measures to include (ordered as in manuscript narrative)
-AGING_VARS <- c("CA", "ProtAge", "MetaboAge", "PhenoAge", "KDM", "HD", "FI", "TL", "DDML_PRS_With_APOE")
-
-# Column names for covariates (edit if your dataset uses different names)
-SEX_COL <- "sex"               # expected factor-like (Female/Male or 0/1)
-EDU_COL <- "education"         # expected categories: Low / Intermediate / High (or similar)
+AGING_VARS <- c("CA", "ProtAge", "MetaboAge", "PhenoAge", "KDM", "HD", "FI", "TL", "PRS_ADRD")
+SEX_COL   <- "sex"
+EDU_COL   <- "education"
 SMOKE_COL <- "smoking"
-ALC_COL   <- "alcohol"
+ALC_COL   <- "alcohol_intake_frequency"
 BMI_COL   <- "bmi"
-
-# Education recode: Low vs (Intermediate+High) (as in your original script)
 EDU_LOW_LABEL <- "Low"
 EDU_HI_LABELS <- c("High", "Intermediate")
-
-# Heatmap significance threshold (FDR)
 FDR_ALPHA <- 0.05
+MIN_N_MODEL <- 200
 
 # --------------------------
-# LOAD DATA
+# LOAD DATA AND VALIDATE INPUT
 # --------------------------
 
-if (nzchar(INPUT_RDS)) {
-  Biomarkers_complete <- readRDS(INPUT_RDS)
-} else {
-  if (!exists("Biomarkers_complete")) stop("No input found: set INPUT_RDS or load Biomarkers_complete before running.")
-}
-
-df0 <- Biomarkers_complete
-
-# --------------------------
-# BASIC VALIDATION
-# --------------------------
+if (!nzchar(INPUT_RDS) || !file.exists(INPUT_RDS))
+  stop("❌ Input RDS not found. Set INPUT_RDS correctly: ", INPUT_RDS)
+df0 <- readRDS(INPUT_RDS)
 
 needed_cols <- unique(c(AGING_VARS, SEX_COL, EDU_COL, SMOKE_COL, ALC_COL, BMI_COL))
 missing_cols <- setdiff(needed_cols, names(df0))
-if (length(missing_cols) > 0) {
-  stop("Missing required columns in input data: ", paste(missing_cols, collapse = ", "))
+if (length(missing_cols) > 0)
+  stop("❌ Missing required columns: ", paste(missing_cols, collapse = ", "))
+
+# --------------------------
+# HELPER FUNCTIONS
+# --------------------------
+
+#' Convert ordinal data to numeric codes, preserving order
+to_numeric_code <- function(x) {
+  if (is.numeric(x)) return(x)
+  if (is.logical(x)) return(as.numeric(x))
+  if (is.factor(x)) return(as.numeric(x))
+  if (is.character(x)) return(as.numeric(as.factor(x)))
+  suppressWarnings(as.numeric(x))
+}
+
+#' Standardize column for regression (z-score)
+zscale <- function(x) as.numeric(scale(x))
+
+#' Fit fully standardized linear model for a single aging marker
+fit_one_marker <- function(marker_name, dat) {
+  if (!marker_name %in% names(dat)) return(NULL)
+  dd <- dat %>% filter(!is.na(.data[[marker_name]])) %>% mutate(outcome_z = zscale(.data[[marker_name]]))
+  
+  if (nrow(dd) < MIN_N_MODEL) return(NULL)
+  if (stats::sd(dd$outcome_z, na.rm = TRUE) == 0) return(NULL)
+
+  dd <- dd %>% mutate(
+    smoking_z = zscale(smoking_num),
+    alcohol_z = zscale(alcohol_num)
+  )
+
+  m <- lm(outcome_z ~ smoking_z + alcohol_z + bmi_z + sex_male + edu_low, data = dd)
+  broom::tidy(m) %>% filter(term != "(Intercept)") %>% mutate(Outcome = marker_name, N = nrow(dd))
 }
 
 # --------------------------
-# 1) BioAge plot (descriptive associations among aging measures)
+# 1) Pairwise Correlation Plot (Descriptive)
 # --------------------------
 
-agevar <- AGING_VARS
-axis_type <- setNames(rep("float", length(agevar)), agevar)
-
 label <- c(
-  "CA"                 = "Chronological Age",
-  "ProtAge"            = "ProtAge\nProteomic Age",
-  "MetaboAge"          = "MetaboAge\nMetabolomic Age",
-  "PhenoAge"           = "PhenoAge\nPhenotypic Age",
-  "KDM"                = "KDM\nBiological Age",
-  "HD"                 = "HD\nHomeostatic Dysregulation",
-  "FI"                 = "FI\nFrailty Index",
-  "TL"                 = "TL\nTelomere Length",
-  "DDML_PRS_With_APOE" = "PRS\n(DDML, incl. APOE)"
+  "CA"        = "Chronological Age",
+  "ProtAge"   = "ProtAge\nProteomic Age",
+  "MetaboAge" = "MetaboAge\nMetabolomic Age",
+  "PhenoAge"  = "PhenoAge\nPhenotypic Age",
+  "KDM"       = "KDM\nBiological Age",
+  "HD"        = "HD\nHomeostatic Dysregulation",
+  "FI"        = "FI\nFrailty Index",
+  "TL"        = "Telomere Length",
+  "PRS_ADRD"  = "PRS\n(DDML, incl. APOE)"
 )
 
 if (HAS_BIOAGE) {
-  # BioAge plot (writes to active device; we save to file)
   png(file.path(OUT_DIR, "bioage_plot_baa.png"), width = 2200, height = 1600, res = 220)
-  BioAge::plot_baa(df0, agevar, label, axis_type)
+  BioAge::plot_baa(df0, AGING_VARS, label,
+                   axis_type = setNames(rep("float", length(AGING_VARS)), AGING_VARS))
   dev.off()
 } else {
-  message("BioAge package not installed; skipping plot_baa().")
+  message("BioAge package not installed; creating correlation heatmap as fallback.")
+  corr_df <- df0 %>%
+    select(all_of(AGING_VARS)) %>%
+    mutate(across(everything(), ~ suppressWarnings(as.numeric(.x)))) %>%
+    cor(use = "pairwise.complete.obs") %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("Var1") %>%
+    pivot_longer(-Var1, names_to = "Var2", values_to = "Correlation")
+
+  p_corr <- ggplot(corr_df, aes(x = Var1, y = Var2, fill = Correlation)) +
+    geom_tile(color = "white", linewidth = 0.3) +
+    coord_equal() +
+    theme_minimal(base_size = 12) +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+    labs(title = "Pairwise correlations among aging measures and PRS", x = NULL, y = NULL)
+
+  ggsave(file.path(OUT_DIR, "pairwise_correlations_heatmap.png"), plot = p_corr, width = 8.5, height = 7.5, dpi = 300)
+  write_csv(corr_df, file.path(OUT_DIR, "pairwise_correlations_long.csv"))
 }
 
 # --------------------------
-# 2) Prepare covariates 
+# 2) Covariate Harmonization & Modeling Dataset Prep
 # --------------------------
 
-# Robust sex formatting
 df1 <- df0 %>%
   mutate(
-    sex_std = as.factor(.data[[SEX_COL]])
-  )
-
-# Education recode: Low vs (High+Intermediate)
-df1 <- df1 %>%
-  mutate(
+    sex_std = as.factor(.data[[SEX_COL]]),
     education_recode = case_when(
       .data[[EDU_COL]] %in% EDU_HI_LABELS ~ "High_Intermediate",
       .data[[EDU_COL]] == EDU_LOW_LABEL ~ "Low",
@@ -121,77 +145,62 @@ df1 <- df1 %>%
     education_recode = factor(education_recode, levels = c("High_Intermediate", "Low"))
   )
 
-covariate_terms <- c("smoking", "alcohol", "bmi", "sex", "education_recode")
-
-# Build a modeling dataset with harmonized names used below
 df_model <- df1 %>%
   transmute(
-    # Outcomes
     across(all_of(AGING_VARS), ~ suppressWarnings(as.numeric(.x))),
-    # Covariates
     smoking = .data[[SMOKE_COL]],
-    alcohol = .data[[ALC_COL]],
+    alcohol_intake_frequency = .data[[ALC_COL]],
     bmi = suppressWarnings(as.numeric(.data[[BMI_COL]])),
     sex = sex_std,
     education_recode = education_recode
-  )
-
-# Drop rows missing covariates (keeps modeling consistent across outcomes)
-df_model <- df_model %>%
+  ) %>%
   filter(
-    !is.na(smoking) & !is.na(alcohol) & !is.na(bmi) & !is.na(sex) & !is.na(education_recode)
+    !is.na(smoking) &
+    !is.na(alcohol_intake_frequency) &
+    !is.na(bmi) &
+    !is.na(sex) &
+    !is.na(education_recode)
+  )
+
+df_std <- df_model %>%
+  mutate(
+    smoking_num = to_numeric_code(smoking),
+    alcohol_num = to_numeric_code(alcohol_intake_frequency),
+    bmi_z = zscale(bmi),
+    sex_male = as.numeric(sex == levels(sex)[2]),
+    edu_low = as.numeric(education_recode == "Low")
   )
 
 # --------------------------
-# 3) Fit multivariable linear models for each aging marker
+# 3) Standardized Linear Modeling (all outcomes)
 # --------------------------
 
-fit_one_marker <- function(marker_name, dat) {
-  # marker must exist
-  if (!marker_name %in% names(dat)) return(NULL)
-
-  dd <- dat %>% filter(!is.na(.data[[marker_name]]))
-  if (nrow(dd) < 200) return(NULL)  # basic stability threshold
-
-  fml <- as.formula(paste0(marker_name, " ~ smoking + alcohol + bmi + sex + education_recode"))
-  m <- lm(fml, data = dd)
-
-  broom::tidy(m) %>%
-    filter(term != "(Intercept)") %>%
-    mutate(
-      Outcome = marker_name,
-      N = nrow(dd)
-    )
-}
-
-results <- lapply(AGING_VARS, fit_one_marker, dat = df_model)
+results <- lapply(AGING_VARS, fit_one_marker, dat = df_std)
 assoc_df <- bind_rows(results)
-
-if (nrow(assoc_df) == 0) stop("No models were fit. Check your data and column names.")
+if (nrow(assoc_df) == 0)
+  stop("No models were fit. Check your data and column names.")
 
 # --------------------------
-# 4) FDR correction + labeling + term harmonization
+# 4) FDR Correction + Labeling
 # --------------------------
 
 assoc_df <- assoc_df %>%
   mutate(
-    p.adj.fdr = p.adjust(p.value, method = "fdr"),
-    sig_label = ifelse(p.adj.fdr <= FDR_ALPHA, "★", ""),  # star for significant after FDR
-    # Harmonize terms for plotting readability
+    p_fdr = p.adjust(p.value, method = "fdr"),
+    sig_label = ifelse(p_fdr <= FDR_ALPHA, "★", ""),
     term_clean = case_when(
-      str_detect(term, "^sex") ~ "sex_Male",
-      term == "education_recodeLow" ~ "education_Low",
-      term == "smoking" ~ "smoking",
-      term == "alcohol" ~ "alcohol",
-      term == "bmi" ~ "bmi",
+      term == "smoking_z" ~ "smoking",
+      term == "alcohol_z" ~ "alcohol intake frequency",
+      term == "bmi_z" ~ "BMI",
+      term == "sex_male" ~ "sex (male)",
+      term == "edu_low" ~ "education (low)",
       TRUE ~ term
     ),
-    Outcome_clean = ifelse(Outcome == "DDML_PRS_With_APOE", "PRS", Outcome)
+    Outcome_clean = Outcome
   )
 
-# Order for heatmap
-term_levels <- c("smoking", "alcohol", "bmi", "sex_Male", "education_Low")
-outcome_levels <- c("CA", "ProtAge", "MetaboAge", "PhenoAge", "KDM", "HD", "FI", "TL", "PRS")
+term_levels <- c("smoking", "alcohol intake frequency", "BMI", "sex (male)", "education (low)")
+outcome_levels <- AGING_VARS
 
 assoc_df <- assoc_df %>%
   mutate(
@@ -199,51 +208,30 @@ assoc_df <- assoc_df %>%
     Outcome_clean = factor(Outcome_clean, levels = outcome_levels)
   )
 
-# Save the association table
-write.csv(assoc_df, file.path(OUT_DIR, "interaction_models_coefficients_fdr.csv"), row.names = FALSE)
+write_csv(assoc_df, file.path(OUT_DIR, "lifestyle_associations_standardized_betas_fdr.csv"))
+
+# Wide matrix export
+assoc_wide <- assoc_df %>%
+  select(Outcome_clean, term_clean, estimate, p_fdr) %>%
+  mutate(Outcome_clean = as.character(Outcome_clean),
+         term_clean = as.character(term_clean)) %>%
+  pivot_wider(names_from = Outcome_clean, values_from = estimate)
+
+write_csv(assoc_wide, file.path(OUT_DIR, "lifestyle_associations_standardized_betas_wide.csv"))
 
 # --------------------------
-# 5) Heatmap of standardized effect sizes (recommended)
-# To compare betas across outcomes with different scales, standardize outcomes.
-# Here we approximate standardized effect using:
-#   beta_std ≈ beta * sd(covariate) / sd(outcome)
-# This is helpful for a cross-outcome heatmap.
+# 5) Heatmap Plot
 # --------------------------
 
-# Compute SDs for outcomes and covariates in the modeling dataset
-sd_outcome <- sapply(outcome_levels, function(o) {
-  # map back PRS
-  col <- if (o == "PRS") "DDML_PRS_With_APOE" else o
-  stats::sd(df_model[[col]], na.rm = TRUE)
-})
-sd_cov <- c(
-  smoking = stats::sd(as.numeric(as.factor(df_model$smoking)), na.rm = TRUE),
-  alcohol = stats::sd(as.numeric(as.factor(df_model$alcohol)), na.rm = TRUE),
-  bmi = stats::sd(df_model$bmi, na.rm = TRUE),
-  sex_Male = stats::sd(as.numeric(df_model$sex == levels(df_model$sex)[2]), na.rm = TRUE),
-  education_Low = stats::sd(as.numeric(df_model$education_recode == "Low"), na.rm = TRUE)
-)
-
-assoc_df <- assoc_df %>%
-  mutate(
-    outcome_sd = sd_outcome[as.character(Outcome_clean)],
-    cov_sd = sd_cov[as.character(term_clean)],
-    beta_std = estimate * (cov_sd / outcome_sd)
-  )
-
-# --------------------------
-# 6) Heatmap plot
-# --------------------------
-
-p <- ggplot(assoc_df, aes(x = Outcome_clean, y = term_clean, fill = beta_std)) +
+p <- ggplot(assoc_df, aes(x = Outcome_clean, y = term_clean, fill = estimate)) +
   geom_tile(color = "white", linewidth = 0.5) +
-  scale_fill_gradient2(midpoint = 0, low = "blue", mid = "white", high = "red", name = "Std. Beta") +
+  scale_fill_gradient2(midpoint = 0, low = "#3B4CC0", mid = "white", high = "#B40426", name = "Std. Beta") +
   geom_text(aes(label = sig_label), color = "black", size = 6) +
   labs(
-    title = "Associations of Lifestyle/Sex/Education with Aging Measures and PRS",
-    subtitle = paste0("Multivariable linear models; FDR < ", FDR_ALPHA, " marked with ★"),
-    x = "Aging Measures / PRS",
-    y = "Covariates"
+    title = "Associations of lifestyle factors, sex, and education with aging measures and PRS",
+    subtitle = paste0("Standardized linear models; FDR < ", FDR_ALPHA, " marked with ★"),
+    x = "Aging measures / PRS",
+    y = NULL
   ) +
   theme_minimal(base_size = 14) +
   theme(
@@ -253,9 +241,9 @@ p <- ggplot(assoc_df, aes(x = Outcome_clean, y = term_clean, fill = beta_std)) +
   )
 
 ggsave(
-  filename = file.path(OUT_DIR, "heatmap_interactions_standardized_beta.png"),
+  file.path(OUT_DIR, "heatmap_lifestyle_associations_standardized_beta.png"),
   plot = p, width = 9, height = 5.5, dpi = 300
 )
 
-cat("\nDONE ✅ BioAge plot + interaction heatmap completed.\n")
+cat("\n✅ DONE: BioAge pairwise plot and lifestyle association heatmap completed.\n")
 cat("Output folder:", OUT_DIR, "\n\n")
