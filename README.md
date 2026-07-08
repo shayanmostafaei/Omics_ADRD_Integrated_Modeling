@@ -1,64 +1,65 @@
-Omics_ADRD_Integrated_Modeling
-
-Code repository for the study, entitled: 
-
 Integrative Prediction of Alzheimer’s Disease and Related Dementias Using Multi-Omics Aging Clocks and Genetic Data
 
-This repository contains analysis scripts for integrated prediction of Alzheimer’s disease and related dementias (ADRD) using polygenic risk scores (PRS), multi-domain biological aging measures, frailty, telomere length, proteomic aging, and metabolomic aging.
+Overview
+
+This project evaluates whether combining polygenic risk scores (PRS) with multi-domain biological aging markers improves prediction and risk stratification for Alzheimer’s disease and related dementias (ADRD).
+
+The analysis uses a multicohort prediction/validation design:
+
+* Development and internal evaluation cohort: UK Biobank
+    Analytic n = 16,215; incident ADRD cases = 397; median follow-up = 10.08 years
+* External validation/replication cohort: Swedish TwinGene
+    Analytic n = 3,772; incident ADRD cases = 331; competing death events = 841; median follow-up = 16.7 years
 
 The workflow includes:
 
-1. Internal model development and held-out evaluation in UK Biobank
-2. Calibration, precision–recall, threshold, decision-curve, and competing-risk analyses
-3. Robustness checks, repeated train–test splits, benchmarking, and missing-data sensitivity analyses
-4. External validation/replication in TwinGene
-
-Important: UK Biobank and TwinGene individual-level data are not distributed in this repository. This repo provides analysis code, expected input formats, and manuscript figure/table generation workflows.
+* Stepwise XGBoost prediction models
+* ROC-AUC and AUPRC evaluation for low-incidence ADRD prediction
+* Calibration analysis and Brier score
+* Threshold-based operating characteristics
+* Decision-curve analysis
+* SHAP-based model interpretation
+* Fine–Gray competing-risk regression with death as a competing event
+* Repeated 70/30 split robustness analyses
+* Logistic-regression benchmark models
+* Multiple-imputation sensitivity analysis
+* External validation/replication in TwinGene
 
 ⸻
 
-Study snapshot
+Main analytic design
 
-UK Biobank internal evaluation
+UK Biobank
 
-* Cohort: UK Biobank participants with complete genetics, clinical biomarkers, proteomics, metabolomics, and biological aging measures
-* Final complete-case analytic sample: N = 16,215 ADRD-free participants at baseline
-* Incident ADRD cases: N = 397
-* Median follow-up: 10.08 years
-* Follow-up definition: baseline assessment to earliest of ADRD diagnosis, death, or censoring
-* Primary evaluation design: stratified 70/30 train–test split
-* Training set: N = 11,351, including 275 incident ADRD cases
-* Held-out test set: N = 4,864, including 122 incident ADRD cases
+The primary UK Biobank analysis used participants free of ADRD at baseline with available genetic, clinical, proteomic, metabolomic, and biological aging measures.
 
-TwinGene external validation/replication
+* Final complete-case sample: 16,215
+* Incident ADRD cases: 397
+* Training set: 11,351 participants, including 275 ADRD cases
+* Held-out test set: 4,864 participants, including 122 ADRD cases
+* Split design: stratified 70/30 train–test split
+* Outcome: incident ADRD during follow-up
+* Competing event: death before ADRD
 
-* External replication cohort: N = 3,772
-* Incident ADRD cases: N = 331
-* Non-cases: N = 3,441
-* Competing death events: N = 841
+All preprocessing steps that required fitted parameters were estimated using training data only and then applied to the held-out test set.
+
+TwinGene
+
+TwinGene was used as an independent Swedish population-based cohort to evaluate external transportability and methodological replication.
+
+* Final complete-case replication sample: 3,772
+* Incident ADRD cases: 331
+* Non-cases: 3,441
+* Competing death events: 841
 * Mean baseline age: 64.2 years
+* Men: 47.0%
 * Median follow-up: 16.7 years
-* Purpose: external transportability and methodological replication of the integrated prediction framework
 
 ⸻
 
-Outcome definition
+Predictors
 
-The primary outcome was incident Alzheimer’s disease and related dementias (ADRD), identified using registry-based ICD-10 codes from inpatient and death registry sources.
-
-Follow-up was defined from baseline assessment to the earliest of:
-
-* incident ADRD diagnosis
-* death
-* censoring
-
-For competing-risk analyses, death before ADRD was treated as a competing event.
-
-⸻
-
-Predictors used
-
-Core predictors and covariates
+Core covariates
 
 * Chronological age
 * Sex
@@ -66,73 +67,47 @@ Core predictors and covariates
 * Smoking
 * Alcohol intake frequency
 * Education
-* Top genetic principal components (10 genetic PCs)
+* Genetic principal components
 
 Genetic risk
 
-* ADRD polygenic risk score, including the APOE locus
+* ADRD PRS including the APOE locus
 * APOE genotype was not entered separately in the primary prediction models
 * APOE-e4 carrier status was used only for stratified sensitivity analyses
 
-PRS construction was based on the DDML Bayesian variational autoencoder implementation:
+Related PRS repository:
 
-* https://link.springer.com/article/10.1186/s13195-026-02011-w
-Clinical and functional biological aging measures
+* https://github.com/shayanmostafaei/DDML_PRS_ADRD
 
-Primary multivariable biological aging predictors:
+Biological aging markers
+
+Main biological aging predictors in multivariable models:
 
 * PhenoAge
 * Frailty Index
 * Telomere Length
 
-Additional biological aging measures evaluated in univariate and correlation analyses:
+Additional biological aging markers evaluated in univariate/correlation analyses:
 
 * Klemera–Doubal Method
 * Homeostatic Dysregulation
 
-Related biological aging reference:
-
-* https://www.nature.com/articles/s41416-023-02288-w
-
 Omics aging clocks
 
-* ProtAge: proteomic aging clock derived from Olink protein data
+* ProtAge: proteomic aging clock derived from Olink proteomics
     https://github.com/shayanmostafaei/Proteomic-Aging-Clock-ProtAge
 * MetaboAge: metabolomic aging clock derived from Nightingale NMR metabolomics
     https://github.com/shayanmostafaei/Metabolomic-Aging-Clock-MetaboAge
 
 ⸻
 
-Main modeling workflow
+Stepwise prediction models
 
-1. Dataset construction and harmonization
-
-The workflow harmonizes:
-
-* outcome variables
-* follow-up time
-* competing death events
-* demographic covariates
-* lifestyle covariates
-* genetic principal components
-* PRS
-* clinical biological aging measures
-* ProtAge
-* MetaboAge
-
-All preprocessing steps requiring fitted parameters are estimated using training data only and then applied to held-out test data.
-
-⸻
-
-2. Stepwise ADRD prediction with XGBoost
-
-The main prediction models were fitted using XGBoost classification and evaluated in the held-out UK Biobank test set.
-
-Stepwise model sequence:
+The primary prediction framework used stepwise XGBoost models:
 
 * Base model: age + sex
 * Model 1: base model + lifestyle covariates
-* Model 2: Model 1 + ADRD PRS
+* Model 2: Model 1 + PRS
 * Model 3: Model 2 + PhenoAge + Frailty Index + Telomere Length
 * Model 4: Model 3 + ProtAge
 * Model 5: Model 4 + MetaboAge
@@ -145,99 +120,36 @@ Primary metrics:
 
 ⸻
 
-3. Calibration, threshold performance, and decision-curve analysis
+Key analytic choices
 
-For the final integrated model, the workflow evaluates:
+This project is designed for prediction and risk stratification, not causal inference. Associations of PRS, biological aging measures, ProtAge, or MetaboAge with ADRD should not be interpreted as causal effects.
 
-* decile-based calibration
-* calibration intercept
-* calibration slope
-* Brier score
-* threshold-based operating characteristics
-* decision-curve analysis
+Why AUPRC is included
 
-Threshold operating points include:
+Because ADRD incidence is low, ROC-AUC alone can overstate practical performance. AUPRC is reported to better evaluate enrichment of future ADRD cases among individuals predicted to be at higher risk.
 
-* top 5% predicted risk
-* top 10% predicted risk
-* illustrative default threshold of 0.5
+Competing-risk analysis
 
-The 0.5 threshold is included only as an illustrative operating point and is not proposed as a clinical decision threshold.
+Death before ADRD was treated as a competing event using Fine–Gray models. This is important in aging cohorts because participants may die before receiving an ADRD diagnosis.
+
+TwinGene interpretation
+
+TwinGene validation evaluates whether the integrated signal transports beyond UK Biobank. It is not interpreted as strict frozen-coefficient validation of all UKB-derived omics clocks because cohort design, omics platforms, and feature availability differed.
 
 ⸻
 
-4. SHAP interpretability
-
-SHAP values are computed for the final integrated XGBoost model in the held-out test set to summarize:
-
-* global feature importance
-* direction of predictor contributions
-* relative contribution of PRS, age, ProtAge, PhenoAge, frailty, telomere length, lifestyle factors, and MetaboAge
-
-⸻
-
-5. Fine–Gray competing-risk risk stratification
-
-Using the final integrated predictor set, the workflow fits Fine–Gray competing-risk regression with death before ADRD treated as a competing event.
-
-The model estimates:
-
-* subdistribution hazard ratios for individual predictors
-* predicted absolute ADRD risk at 5 and 9 years
-* cumulative incidence by predicted-risk group
-* risk-group separation comparing the top 25% predicted-risk group versus the lower 75%
-
-⸻
-
-6. Robustness and sensitivity analyses
-
-The revised workflow includes:
-
-* alternative predictor-entry orders
-* 100 repeated stratified 70/30 train–test splits
-* logistic-regression benchmark models
-* subgroup analyses by sex
-* subgroup analyses by APOE-e4 carrier status
-* PRS with and without the APOE locus
-* models with and without lifestyle covariates
-* prediction horizons at 5 and 9 years
-* early-event exclusion
-* complete-case versus multiple-imputation sensitivity analysis
-* cause-specific Cox versus Fine–Gray comparison
-* time-since-baseline versus attained-age sensitivity
-
-⸻
-
-7. TwinGene external validation/replication
-
-TwinGene was used to evaluate whether the integrated signal transported beyond UK Biobank.
-
-The TwinGene workflow includes:
-
-* harmonization of available predictors
-* PRS using the same selected SNP panel and external GWAS weights 
-* harmonized clinical biological aging measures
-* Olink-based ProtAge replication
-* UKB-portable MetaboAge implementation 
-* XGBoost discrimination analysis
-* logistic-regression replication benchmark
-* Fine–Gray competing-risk risk stratification
-* cumulative incidence by predicted-risk group
-
-⸻
-
-Main results at a glance
+Results at a glance
 
 UK Biobank held-out test set
 
-Stepwise XGBoost discrimination:
+Stepwise XGBoost performance:
 
-* Base model, age + sex: ROC-AUC ≈ 0.79
-* + lifestyle covariates: ROC-AUC ≈ 0.82
-* + PRS: ROC-AUC ≈ 0.86
-* + PhenoAge + Frailty Index + Telomere Length: ROC-AUC ≈ 0.89
-* + ProtAge: ROC-AUC ≈ 0.90
-* + MetaboAge, final Model 5: ROC-AUC ≈ 0.90, AUPRC ≈ 0.24
+* Age + sex: ROC-AUC ≈ 0.79
+* ￼	lifestyle: ROC-AUC ≈ 0.82
+* ￼	PRS: ROC-AUC ≈ 0.86
+* ￼	PhenoAge + Frailty Index + Telomere Length: ROC-AUC ≈ 0.89
+* ￼	ProtAge: ROC-AUC ≈ 0.90
+* Final Model 5, + MetaboAge: ROC-AUC ≈ 0.90, AUPRC ≈ 0.24
 
 Fine–Gray competing-risk model:
 
@@ -245,7 +157,7 @@ Fine–Gray competing-risk model:
 * ProtAge: sHR ≈ 2.01
 * Top 25% predicted-risk group versus lower 75%: sHR ≈ 16.73
 
-Repeated split robustness
+Robustness analyses
 
 Across 100 repeated stratified 70/30 splits:
 
@@ -254,190 +166,110 @@ Across 100 repeated stratified 70/30 splits:
 * Logistic-regression full-model benchmark mean ROC-AUC ≈ 0.868
 * Logistic-regression full-model benchmark mean AUPRC ≈ 0.228
 
-
 TwinGene external validation/replication
 
 * ROC-AUC ≈ 0.757
 * AUPRC ≈ 0.223
 * Top 25% predicted-risk group versus lower 75%: sHR ≈ 4.02
-* Event proportions: 19.9% in top 25% versus 5.1% in lower 75%
-
-TwinGene showed lower discrimination than UK Biobank, as expected, but preserved meaningful risk enrichment.
+* ADRD event proportion: 19.9% in the top 25% versus 5.1% in the lower 75%
 
 ⸻
 
-Repository layout
+Scripts
 
-Omics_ADRD_Integrated_Modeling/
-├── README.md
-├── LICENSE
-├── .gitignore
-├── data/
-│   └── README_data_dictionary.md
-├── docs/
-│   └── manuscript_output_map.md
-├── scripts/
-│   ├── 01_Univariate_Analysis_ROCs.R
-│   ├── 02_Interaction_Heatmaps_BioAge.R
-│   ├── 03_Multivariable_XGBoost_Modeling.R
-│   ├── 04_SHAP_Analysis.py
-│   ├── 05_Survival_Competing_Risks_Analysis.R
-│   ├── 06_Sensitivity_Analyses.R
-│   ├── 07_Calibration_DCA_Thresholds.R
-│   ├── 08_Repeated_Split_Stability.R
-│   ├── 09_Benchmarking_Reclassification.R
-│   ├── 10_Multiple_Imputation_Sensitivity.R
-│   ├── 11_TwinGene_External_Validation.R
-│   └── 99_session_info.R
-└── results/
-    └── README_outputs.md
+The main analysis scripts are stored in scripts/.
+
+Script	Purpose
+01_Univariate_Analysis_ROCs.R	Univariate ROC-AUC analyses for individual predictors
+02_Interaction_Heatmaps_BioAge.R	Correlations and associations among biological aging markers, PRS, and covariates
+03_Multivariable_XGBoost_Modeling.R	Stepwise XGBoost prediction models, ROC-AUC, AUPRC, DeLong tests, and prediction export
+04_SHAP_Analysis.py	SHAP interpretation for the final XGBoost model
+05_Survival_Competing_Risks_Analysis.R	Fine–Gray competing-risk analysis and cumulative incidence by predicted-risk group
+06_Sensitivity_Analyses.R	Subgroup, prediction-horizon, early-event, and robustness analyses
+07_Calibration_DCA_Thresholds.R	Calibration, Brier score, threshold operating characteristics, and decision-curve analysis
+08_Repeated_Split_Stability.R	100 repeated stratified train–test split analyses for XGBoost and logistic regression
+09_Benchmarking_Reclassification.R	Benchmarking against simpler predictor sets, IDI, and continuous NRI
+10_Multiple_Imputation_Sensitivity.R	Complete-case versus multiple-imputation sensitivity analysis
+11_TwinGene_External_Validation.R	TwinGene external validation/replication, ROC-AUC, AUPRC, and competing-risk risk stratification
+99_session_info.R	R session information and package versions
 
 ⸻
 
 Manuscript output map
 
-Manuscript item	Script	Main output
-Figure 2	scripts/01_Univariate_Analysis_ROCs.R	univariate ROC-AUC forest plot
-Figure 3	scripts/02_Interaction_Heatmaps_BioAge.R	predictor correlation matrix
-Table 2	scripts/03_Multivariable_XGBoost_Modeling.R	stepwise ROC-AUC and AUPRC table
-Figure A.5	scripts/03_Multivariable_XGBoost_Modeling.R	precision–recall curves
-Figure A.6	scripts/07_Calibration_DCA_Thresholds.R	calibration plot
-Figure A.7	scripts/07_Calibration_DCA_Thresholds.R	decision-curve analysis
-Figure A.8	scripts/04_SHAP_Analysis.py	SHAP summary plot
-Figure 4	scripts/05_Survival_Competing_Risks_Analysis.R	Fine–Gray predictor forest plot
-Figure 5	scripts/05_Survival_Competing_Risks_Analysis.R	cumulative incidence by predicted-risk group
-Figure A.9	scripts/06_Sensitivity_Analyses.R	sensitivity-analysis AUC forest plot
-Figure A.10	scripts/06_Sensitivity_Analyses.R	early-event exclusion analysis
-Table A.5	scripts/08_Repeated_Split_Stability.R	repeated-split XGBoost stability
-Table A.6	scripts/08_Repeated_Split_Stability.R	repeated-split logistic-regression benchmark
-Table A.8	scripts/09_Benchmarking_Reclassification.R	simpler-model benchmarking and reclassification
-Table A.10	scripts/11_TwinGene_External_Validation.R	TwinGene predictor harmonization
-Table A.11	scripts/11_TwinGene_External_Validation.R	TwinGene validation performance
-Table A.12	scripts/11_TwinGene_External_Validation.R	TwinGene risk stratification
-Figure A.11	scripts/11_TwinGene_External_Validation.R	TwinGene ROC and precision–recall curves
-Figure A.12	scripts/11_TwinGene_External_Validation.R	TwinGene cumulative incidence curves
+Manuscript output	Main script
+Figure 2: univariate predictor ROC-AUCs	01_Univariate_Analysis_ROCs.R
+Figure 3: predictor correlation matrix	02_Interaction_Heatmaps_BioAge.R
+Table 2: stepwise XGBoost performance	03_Multivariable_XGBoost_Modeling.R
+Figure A.5: precision–recall curves	03_Multivariable_XGBoost_Modeling.R
+Figure A.6: calibration	07_Calibration_DCA_Thresholds.R
+Figure A.7: decision-curve analysis	07_Calibration_DCA_Thresholds.R
+Figure A.8: SHAP summary plot	04_SHAP_Analysis.py
+Figure 4: Fine–Gray predictor sHRs	05_Survival_Competing_Risks_Analysis.R
+Figure 5: cumulative incidence by predicted-risk group	05_Survival_Competing_Risks_Analysis.R
+Figure A.9: sensitivity analyses	06_Sensitivity_Analyses.R
+Figure A.10: early-event exclusion	06_Sensitivity_Analyses.R
+Table A.5: repeated-split XGBoost stability	08_Repeated_Split_Stability.R
+Table A.6: repeated-split logistic-regression benchmark	08_Repeated_Split_Stability.R
+Table A.8: simpler-model benchmarking and reclassification	09_Benchmarking_Reclassification.R
+Table A.10: TwinGene predictor harmonization	11_TwinGene_External_Validation.R
+Table A.11: TwinGene validation performance	11_TwinGene_External_Validation.R
+Table A.12: TwinGene risk stratification	11_TwinGene_External_Validation.R
+Figure A.11: TwinGene ROC and precision–recall curves	11_TwinGene_External_Validation.R
+Figure A.12: TwinGene cumulative incidence curves	11_TwinGene_External_Validation.R
 
 ⸻
 
-Expected input data
+Inputs not included
 
-Raw individual-level UK Biobank and TwinGene data are not included.
-
-UK Biobank input
-
-
-Key required columns include:
-
-* f.eid
-* Dementia_status
-* Time_to_Dementia
-* death_status
-* time_to_death
-* length_followup
-* CA
-* sex
-* bmi
-* smoking
-* alcohol_intake_frequency
-* education
-* PRS_ADRD
-* PhenoAge
-* FI
-* TL
-* ProtAge
-* MetaboAge
-* PC1 to PC10
-* APOEe4_status
-* age_at_dementia_onset
-
-TwinGene input
-
-
-Key required columns include:
-
-* twin_id
-* pair_id
-* zygosity
-* age
-* sex
-* dementia
-* time_to_adrd
-* death_status
-* time_to_death
-* followup_time
-* PRS_ADRD
-* PhenoAge
-* FI
-* TL
-* ProtAge
-* MetaboAge
-* * PC1 to PC10
-* APOEe4_status
-* age_at_dementia_onset
+Individual-level UK Biobank and TwinGene data are not included in this repository.
 
 
 ⸻
 
-Reproducibility
+Requirements
 
-R environment
+Core R packages:
 
-This project was run using R version 4.4.3. Core R packages include:
+dplyr
+tidyr
+readr
+caret
+xgboost
+pROC
+PRROC
+riskRegression
+cmprsk
+prodlim
+survival
+survminer
+ggplot2
+patchwork
+mice
 
-* dplyr
-* tidyr
-* readr
-* caret
-* xgboost
-* pROC
-* PRROC
-* riskRegression
-* cmprsk
-* prodlim
-* survival
-* survminer
-* ggplot2
-* patchwork
-* mice
+Core Python packages:
 
-Python environment
-
-Python was used for SHAP and selected machine-learning utilities. Core packages include:
-
-* python >= 3.10
-* numpy
-* pandas
-* scikit-learn
-* xgboost
-* shap
-* matplotlib
-
-A full session information script is provided in:
-
-scripts/99_session_info.R
+python >= 3.10
+numpy
+pandas
+scikit-learn
+xgboost
+shap
+matplotlib
 
 ⸻
 
 Data governance
 
-This repository does not include raw or individual-level UK Biobank or TwinGene data.
+This repository does not distribute:
 
-The following files should not be committed:
-
-* raw .rds, .RData, .csv, .tsv, or .parquet files
+* raw UK Biobank data
+* raw TwinGene data
 * individual-level predictions
-* model objects containing individual-level metadata
-* derived files that could identify participants
+* identifiable participant information
+* derived data requiring controlled access
 
-Researchers must obtain access to UK Biobank and TwinGene data through the appropriate governed access procedures.
-
-⸻
-
-Interpretation note
-
-This repository supports a prediction and risk-stratification study. The analyses are not designed to estimate causal effects of PRS, biological aging measures, ProtAge, or MetaboAge on ADRD risk.
-
-The final interpretation is that integrated genetic and biological aging information improves ADRD risk ranking and risk enrichment, especially for prevention-oriented research and trial enrichment. The model is not proposed as a diagnostic classifier or ready for clinical deployment.
+Researchers must obtain access to UK Biobank and TwinGene through the appropriate governed access procedures.
 
 ⸻
 
@@ -457,11 +289,13 @@ Improved polygenic risk prediction for Alzheimer’s disease and related dementi
 
 License
 
-MIT License. See LICENSE.
+This project is licensed under the MIT License — see the LICENSE file for details.
 
 ⸻
 
 Contact
 
-* Shayan Mostafaei — shayan.mostafaei@ki.se
-* Sara Hägg — sara.hagg@ki.se
+For questions or contributions, please contact:
+
+* Dr. Shayan Mostafaei: shayan.mostafaei@ki.se
+* Prof. Sara Hägg: sara.hagg@ki.se 
