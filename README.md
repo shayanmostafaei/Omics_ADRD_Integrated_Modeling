@@ -1,6 +1,6 @@
-Integrative Prediction of Alzheimer’s Disease and Related Dementias Using Multi-Omics Aging Clocks and Genetic Data
+# Integrative Prediction of Alzheimer’s Disease and Related Dementias Using Multi-Omics Aging Clocks and Genetic Data
 
-Overview
+## Overview
 
 This project evaluates whether combining polygenic risk scores (PRS) with multi-domain biological aging markers improves prediction and risk stratification for Alzheimer’s disease and related dementias (ADRD).
 
