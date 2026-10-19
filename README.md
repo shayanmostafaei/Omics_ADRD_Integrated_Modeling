@@ -277,8 +277,7 @@ Citation
 
 If you use this code, please cite:
 
-Mostafaei S, Gustavsson K, Hagelin H, Mak JKL, Vu TN, Karlsson IK, Hägg S.
-Integrative Prediction of Alzheimer’s Disease and Related Dementias Using Multi-Omics Aging Clocks and Genetic Data. Manuscript under review.
+Mostafaei S, Gustavsson K, Hagelin H, Mak JK, Vu TN, Karlsson IK, Hägg S. Integrative prediction of Alzheimer's disease and related dementias using multi‐omics aging clocks and genetic data. Alzheimer's & Dementia. 2026 Oct;22(10):e71869. 
 
 Related PRS method:
 
